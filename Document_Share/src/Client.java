@@ -1,3 +1,6 @@
+import utils.KeyLoader;
+import utils.RSAUtils;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -5,7 +8,9 @@ import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import utils.FileUtils;
+import java.security.KeyPair;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 
 public class Client {
 
@@ -13,7 +18,42 @@ public class Client {
     private static final int SERVER_PORT = 1234;
     private static final int CLIENT_RECEIVE_PORT = 5678;
 
+    // 🔐 Key file paths
+    private static final String ALICE_PRIVATE_KEY = "alice_private.key";
+    private static final String ALICE_PUBLIC_KEY = "alice_public.key"; // Optional if you want to send it to Bob
+    private static final String BOB_PUBLIC_KEY = "bob_public.key";
+
     public static void main(String[] args) {
+        // Ensure ClientFiles directory exists
+        new File("ClientFiles/").mkdirs();
+
+        // 🔐 Load or generate Alice's key pair
+        try {
+            if (!KeyLoader.keysExist(ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY)) {
+                KeyPair keyPair = RSAUtils.generateKeyPair();
+                KeyLoader.saveKeys(keyPair, ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY);
+                System.out.println("Generated and saved new RSA key pair for Alice.");
+            }
+            PrivateKey privateKey = KeyLoader.loadPrivateKey(ALICE_PRIVATE_KEY);
+            FileTransferHandler.setPrivateKey(privateKey);
+            System.out.println("Loaded Alice's private key.");
+        } catch (Exception e) {
+            System.err.println("Failed to load or generate Alice's keys: " + e.getMessage());
+            return;
+        }
+
+        // (Optional) Load Bob's public key if mutual signing is required
+        try {
+            if (new File(BOB_PUBLIC_KEY).exists()) {
+                PublicKey bobPub = KeyLoader.loadPublicKey(BOB_PUBLIC_KEY);
+                FileTransferHandler.setPublicKey(bobPub);
+                System.out.println("Loaded Bob's public key (for optional verification).");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to load Bob's public key: " + e.getMessage());
+        }
+
+        // GUI
         JFrame jFrame = new JFrame("Alice");
         jFrame.setSize(650, 450);
         jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -35,14 +75,12 @@ public class Client {
         jlFileName.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton jbChooseFile = new JButton("Choose File");
-        jbChooseFile.setPreferredSize(new Dimension(150, 75));
         jbChooseFile.setFont(new Font("Arial", Font.BOLD, 20));
         jbChooseFile.setBackground(new Color(173, 216, 230));
         jbChooseFile.setForeground(Color.WHITE);
         jbChooseFile.setBorder(BorderFactory.createLineBorder(new Color(135, 206, 250), 2));
 
         JButton jbSendFile = new JButton("Send File");
-        jbSendFile.setPreferredSize(new Dimension(150, 75));
         jbSendFile.setFont(new Font("Arial", Font.BOLD, 20));
         jbSendFile.setBackground(new Color(220, 20, 60));
         jbSendFile.setForeground(Color.WHITE);
@@ -73,7 +111,7 @@ public class Client {
             } else {
                 try {
                     FileTransferHandler.sendFile(fileToSend[0], SERVER_ADDRESS, SERVER_PORT);
-                    System.out.println("Alice sent = "+ fileToSend[0].getName());
+                    System.out.println("Alice sent = " + fileToSend[0].getName());
                     JOptionPane.showMessageDialog(null, "File sent to server successfully!");
                 } catch (IOException ex) {
                     ex.printStackTrace();
@@ -84,8 +122,8 @@ public class Client {
 
         jFrame.setVisible(true);
 
-        // Start receiver thread
-        new Thread(() -> startReceiver()).start();
+        // Start background thread to receive secure files
+        new Thread(Client::startReceiver).start();
     }
 
     private static void startReceiver() {

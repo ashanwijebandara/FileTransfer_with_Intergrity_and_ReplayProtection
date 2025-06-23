@@ -1,3 +1,6 @@
+import utils.KeyLoader;
+import utils.RSAUtils;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -5,16 +8,22 @@ import java.io.File;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import utils.FileUtils;
+import java.security.KeyPair;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 
 public class Server {
 
     private static final int SERVER_PORT = 1234;
     private static final int CLIENT_RECEIVE_PORT = 5678;
-    private static final String CLIENT_IP = "localhost"; // change if client is remote
+    private static final String CLIENT_IP = "localhost";
+
+    // Key file paths
+    private static final String BOB_PRIVATE_KEY = "bob_private.key";
+    private static final String BOB_PUBLIC_KEY = "bob_public.key"; // optional, for sharing with Alice
+    private static final String ALICE_PUBLIC_KEY = "alice_public.key";
 
     private JFrame jFrame;
-    private JPanel jPanel;
     private JLabel jlStatus;
     private File[] fileToSend = new File[1];
 
@@ -23,6 +32,37 @@ public class Server {
     }
 
     public void startServer() {
+        // Ensure ServerFiles directory exists
+        new File("ServerFiles/").mkdirs();
+
+        // 🔐 Load or generate Bob's private key
+        try {
+            if (!KeyLoader.keysExist(BOB_PUBLIC_KEY, BOB_PRIVATE_KEY)) {
+                KeyPair keyPair = RSAUtils.generateKeyPair();
+                KeyLoader.saveKeys(keyPair, BOB_PUBLIC_KEY, BOB_PRIVATE_KEY);
+                System.out.println("Generated and saved new RSA key pair for Bob.");
+            }
+
+            PrivateKey privateKey = KeyLoader.loadPrivateKey(BOB_PRIVATE_KEY);
+            FileTransferHandler.setPrivateKey(privateKey);
+            System.out.println("Loaded Bob's private key.");
+        } catch (Exception e) {
+            System.err.println("Failed to load or generate Bob's keys: " + e.getMessage());
+            return;
+        }
+
+        // 🔐 Load Alice's public key to verify incoming signatures
+        try {
+            if (new File(ALICE_PUBLIC_KEY).exists()) {
+                PublicKey alicePub = KeyLoader.loadPublicKey(ALICE_PUBLIC_KEY);
+                FileTransferHandler.setPublicKey(alicePub);
+                System.out.println("Loaded Alice's public key for verification.");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to load Alice's public key: " + e.getMessage());
+        }
+
+        // GUI
         jFrame = new JFrame("Bob");
         jFrame.setSize(700, 500);
         jFrame.setLayout(new BorderLayout(10, 10));
@@ -82,7 +122,7 @@ public class Server {
             } else {
                 try {
                     FileTransferHandler.sendFile(fileToSend[0], CLIENT_IP, CLIENT_RECEIVE_PORT);
-                    System.out.println("Bob Send = "+ fileToSend[0].getName());
+                    System.out.println("Bob sent = " + fileToSend[0].getName());
                     JOptionPane.showMessageDialog(null, "File sent to client successfully!");
                 } catch (IOException ex) {
                     ex.printStackTrace();
@@ -92,7 +132,7 @@ public class Server {
         });
 
         // Start background thread to receive files from client
-        new Thread(() -> startReceiver()).start();
+        new Thread(this::startReceiver).start();
     }
 
     private void startReceiver() {
