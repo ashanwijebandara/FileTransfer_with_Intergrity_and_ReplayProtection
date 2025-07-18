@@ -20,7 +20,7 @@ public class Server {
 
     // Key file paths
     private static final String BOB_PRIVATE_KEY = "bob_private.key";
-    private static final String BOB_PUBLIC_KEY = "bob_public.key"; // optional, for sharing with Alice
+    private static final String BOB_PUBLIC_KEY = "bob_public.key";
     private static final String ALICE_PUBLIC_KEY = "alice_public.key";
 
     private JFrame jFrame;
@@ -32,10 +32,9 @@ public class Server {
     }
 
     public void startServer() {
-        // Ensure ServerFiles directory exists
         new File("ServerFiles/").mkdirs();
 
-        // 🔐 Load or generate Bob's private key
+        // Key Initialization
         try {
             if (!KeyLoader.keysExist(BOB_PUBLIC_KEY, BOB_PRIVATE_KEY)) {
                 KeyPair keyPair = RSAUtils.generateKeyPair();
@@ -43,26 +42,34 @@ public class Server {
                 System.out.println("Generated and saved new RSA key pair for Bob.");
             }
 
-            PrivateKey privateKey = KeyLoader.loadPrivateKey(BOB_PRIVATE_KEY);
-            FileTransferHandler.setPrivateKey(privateKey);
-            System.out.println("Loaded Bob's private key.");
+            // Load Bob's keys
+            PrivateKey bobPrivateKey = KeyLoader.loadPrivateKey(BOB_PRIVATE_KEY);
+            PublicKey bobPublicKey = KeyLoader.loadPublicKey(BOB_PUBLIC_KEY);
+
+            // Set keys in FileTransferHandler
+            FileTransferHandler.setSenderPrivateKey(bobPrivateKey); // For signing when Bob sends files
+            FileTransferHandler.setReceiverPrivateKey(bobPrivateKey); // For decrypting received files
+            FileTransferHandler.setSenderPublicKey(bobPublicKey);
+
+            System.out.println("Loaded Bob's keys successfully.");
         } catch (Exception e) {
-            System.err.println("Failed to load or generate Bob's keys: " + e.getMessage());
+            System.err.println("Failed to load/generate Bob's keys: " + e.getMessage());
             return;
         }
 
-        // 🔐 Load Alice's public key to verify incoming signatures
         try {
             if (new File(ALICE_PUBLIC_KEY).exists()) {
                 PublicKey alicePub = KeyLoader.loadPublicKey(ALICE_PUBLIC_KEY);
-                FileTransferHandler.setPublicKey(alicePub);
-                System.out.println("Loaded Alice's public key for verification.");
+                FileTransferHandler.setReceiverPublicKey(alicePub); // For encrypting files to Alice
+                System.out.println("Loaded Alice's public key.");
+            } else {
+                System.err.println("Alice's public key not found!");
             }
         } catch (Exception e) {
             System.err.println("Failed to load Alice's public key: " + e.getMessage());
         }
 
-        // GUI
+        // GUI Setup
         jFrame = new JFrame("Bob");
         jFrame.setSize(700, 500);
         jFrame.setLayout(new BorderLayout(10, 10));
@@ -87,14 +94,12 @@ public class Server {
         jbChooseFile.setFont(new Font("Arial", Font.BOLD, 18));
         jbChooseFile.setBackground(new Color(173, 216, 230));
         jbChooseFile.setForeground(Color.WHITE);
-        jbChooseFile.setBorder(BorderFactory.createLineBorder(new Color(135, 206, 250), 2));
         jbChooseFile.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton jbSendFile = new JButton("Send File to Alice");
         jbSendFile.setFont(new Font("Arial", Font.BOLD, 18));
         jbSendFile.setBackground(new Color(34, 139, 34));
         jbSendFile.setForeground(Color.WHITE);
-        jbSendFile.setBorder(BorderFactory.createLineBorder(new Color(34, 139, 34), 2));
         jbSendFile.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         mainPanel.add(jlTitle);
@@ -106,10 +111,10 @@ public class Server {
         jFrame.setVisible(true);
 
         jbChooseFile.addActionListener(e -> {
-            JFileChooser jFileChooser = new JFileChooser();
-            jFileChooser.setDialogTitle("Choose a file to send");
-            if (jFileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                fileToSend[0] = jFileChooser.getSelectedFile();
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Choose a file to send");
+            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                fileToSend[0] = chooser.getSelectedFile();
                 jlStatus.setText("Selected file: " + fileToSend[0].getName());
                 jlStatus.setForeground(Color.BLACK);
             }
@@ -131,7 +136,6 @@ public class Server {
             }
         });
 
-        // Start background thread to receive files from client
         new Thread(this::startReceiver).start();
     }
 

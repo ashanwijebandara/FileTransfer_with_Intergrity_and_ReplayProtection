@@ -18,42 +18,50 @@ public class Client {
     private static final int SERVER_PORT = 1234;
     private static final int CLIENT_RECEIVE_PORT = 5678;
 
-    // 🔐 Key file paths
     private static final String ALICE_PRIVATE_KEY = "alice_private.key";
-    private static final String ALICE_PUBLIC_KEY = "alice_public.key"; // Optional if you want to send it to Bob
+    private static final String ALICE_PUBLIC_KEY = "alice_public.key";
     private static final String BOB_PUBLIC_KEY = "bob_public.key";
 
     public static void main(String[] args) {
-        // Ensure ClientFiles directory exists
         new File("ClientFiles/").mkdirs();
 
-        // 🔐 Load or generate Alice's key pair
         try {
+            // Generate or load Alice's keys
             if (!KeyLoader.keysExist(ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY)) {
                 KeyPair keyPair = RSAUtils.generateKeyPair();
                 KeyLoader.saveKeys(keyPair, ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY);
                 System.out.println("Generated and saved new RSA key pair for Alice.");
             }
-            PrivateKey privateKey = KeyLoader.loadPrivateKey(ALICE_PRIVATE_KEY);
-            FileTransferHandler.setPrivateKey(privateKey);
-            System.out.println("Loaded Alice's private key.");
+
+            // Load Alice's keys
+            PrivateKey alicePrivateKey = KeyLoader.loadPrivateKey(ALICE_PRIVATE_KEY);
+            PublicKey alicePublicKey = KeyLoader.loadPublicKey(ALICE_PUBLIC_KEY);
+
+            // Set keys in FileTransferHandler
+            FileTransferHandler.setSenderPrivateKey(alicePrivateKey);  // For signing when Alice sends files
+            FileTransferHandler.setReceiverPrivateKey(alicePrivateKey); // For decrypting received files
+            FileTransferHandler.setSenderPublicKey(alicePublicKey);
+
+            System.out.println("Loaded Alice's keys successfully.");
         } catch (Exception e) {
             System.err.println("Failed to load or generate Alice's keys: " + e.getMessage());
             return;
         }
 
-        // (Optional) Load Bob's public key if mutual signing is required
         try {
+            // Load Bob's public key
             if (new File(BOB_PUBLIC_KEY).exists()) {
                 PublicKey bobPub = KeyLoader.loadPublicKey(BOB_PUBLIC_KEY);
-                FileTransferHandler.setPublicKey(bobPub);
-                System.out.println("Loaded Bob's public key (for optional verification).");
+                FileTransferHandler.setReceiverPublicKey(bobPub);  // For encrypting files to Bob
+                System.out.println("Loaded Bob's public key.");
+            } else {
+                System.err.println("Bob's public key not found!");
             }
         } catch (Exception e) {
             System.err.println("Failed to load Bob's public key: " + e.getMessage());
         }
 
-        // GUI
+        // GUI Setup
         JFrame jFrame = new JFrame("Alice");
         jFrame.setSize(650, 450);
         jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -122,7 +130,6 @@ public class Client {
 
         jFrame.setVisible(true);
 
-        // Start background thread to receive secure files
         new Thread(Client::startReceiver).start();
     }
 

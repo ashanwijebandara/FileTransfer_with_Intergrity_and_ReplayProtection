@@ -1,153 +1,193 @@
-import utils.AESUtils;
-import utils.FileUtils;
-import utils.RSAUtils;
-
-import java.io.*;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.IOException;
 import java.net.Socket;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.*;
+import java.util.*;
 import java.util.Base64;
-import java.util.HashSet;
-import java.util.Set;
 
 public class FileTransferHandler {
 
-    // AES key (symmetric, shared securely beforehand)
-    private static final byte[] AES_KEY_BYTES = "1234567890123456".getBytes(); // 128-bit AES
+    private static final String AES_TRANSFORMATION = "AES/GCM/NoPadding";
+    private static final int AES_KEY_SIZE = 128;
+    private static final int GCM_TAG_LENGTH = 128;
+    private static final int GCM_IV_LENGTH = 12;
 
-    // RSA key holders (set externally)
-    private static PrivateKey PRIVATE_KEY;
-    private static PublicKey PUBLIC_KEY;
+    private static PublicKey receiverPublicKey;   // Used to encrypt AES key when sending
+    private static PrivateKey senderPrivateKey;  // Used to sign when sending
+    private static PublicKey senderPublicKey;    // Used to verify when receiving
+    private static PrivateKey receiverPrivateKey;// Used to decrypt AES key when receiving
 
-    // Replay protection
     private static final Set<String> usedNonces = new HashSet<>();
-    private static final long ALLOWED_TIME_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
-    // 🔐 Public setter methods (called from Client/Server)
-    public static void setPrivateKey(PrivateKey key) {
-        PRIVATE_KEY = key;
+    public static void setReceiverPublicKey(PublicKey key) {
+        receiverPublicKey = key;
     }
 
-    public static void setPublicKey(PublicKey key) {
-        PUBLIC_KEY = key;
+    public static void setSenderPrivateKey(PrivateKey key) {
+        senderPrivateKey = key;
     }
 
-    // Generate random nonce
-    private static String generateNonce() {
-        byte[] nonceBytes = new byte[16];
-        new SecureRandom().nextBytes(nonceBytes);
-        return Base64.getEncoder().encodeToString(nonceBytes);
+    public static void setSenderPublicKey(PublicKey key) {
+        senderPublicKey = key;
     }
 
-    // Serialize Java object to byte array
-    private static byte[] serializeObject(Object obj) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-            oos.writeObject(obj);
+    public static void setReceiverPrivateKey(PrivateKey key) {
+        receiverPrivateKey = key;
+    }
+
+    public static void sendFile(File file, String ip, int port) throws IOException {
+        if (receiverPublicKey == null || senderPrivateKey == null) {
+            throw new IllegalStateException("Required keys not set for sending");
         }
-        return baos.toByteArray();
-    }
 
-    // Deserialize byte array to SecureFilePayload
-    private static SecureFilePayload deserializePayload(byte[] data) throws IOException, ClassNotFoundException {
-        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data))) {
-            return (SecureFilePayload) ois.readObject();
+        try (Socket socket = new Socket(ip, port);
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+
+            // Generate AES key
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            keyGen.init(AES_KEY_SIZE);
+            SecretKey aesKey = keyGen.generateKey();
+
+            // Encrypt file with AES
+            byte[] fileBytes = Files.readAllBytes(file.toPath());
+            byte[] iv = SecureRandom.getInstanceStrong().generateSeed(GCM_IV_LENGTH);
+
+            Cipher aesCipher = Cipher.getInstance(AES_TRANSFORMATION);
+            aesCipher.init(Cipher.ENCRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] encryptedFile = aesCipher.doFinal(fileBytes);
+
+            // Encrypt AES key with RSA
+            Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            rsaCipher.init(Cipher.ENCRYPT_MODE, receiverPublicKey);
+            byte[] encryptedAESKey = rsaCipher.doFinal(aesKey.getEncoded());
+
+            // Create payload with metadata
+            String nonce = UUID.randomUUID().toString();
+            String timestamp = Long.toString(System.currentTimeMillis());
+            String payload = "filename=" + file.getName() + ";nonce=" + nonce + ";timestamp=" + timestamp + ";iv=" + Base64.getEncoder().encodeToString(iv);
+
+            // Create signature
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(encryptedFile);
+            digest.update(encryptedAESKey);
+            digest.update(payload.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest();
+
+            Signature signature = Signature.getInstance("SHA256withRSA");
+            signature.initSign(senderPrivateKey);
+            signature.update(hash);
+            byte[] rsaSignature = signature.sign();
+
+            // Send all data
+            dos.writeInt(encryptedFile.length);
+            dos.write(encryptedFile);
+            dos.writeInt(encryptedAESKey.length);
+            dos.write(encryptedAESKey);
+            dos.writeInt(payload.getBytes().length);
+            dos.write(payload.getBytes());
+            dos.writeInt(rsaSignature.length);
+            dos.write(rsaSignature);
+
+        } catch (Exception e) {
+            throw new IOException("Failed to send file", e);
         }
     }
 
-    // ✅ Sender (Alice or Bob)
-    public static void sendFile(File file, String host, int port) throws IOException {
-        try (Socket socket = new Socket(host, port);
-             DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+    public static void receiveFile(Socket socket, String savePath) {
+        if (receiverPrivateKey == null || senderPublicKey == null) {
+            System.err.println("Required keys not set for receiving");
+            return;
+        }
 
-            byte[] fileContent = FileUtils.readFile(file.getAbsolutePath());
-            long timestamp = System.currentTimeMillis();
-            String nonce = generateNonce();
+        try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+            // Read all components
+            byte[] encryptedFile = new byte[dis.readInt()];
+            dis.readFully(encryptedFile);
 
-            // Step 1: Create payload
-            SecureFilePayload payload = new SecureFilePayload(
-                    file.getName(), fileContent, timestamp, nonce, null
-            );
+            byte[] encryptedAESKey = new byte[dis.readInt()];
+            dis.readFully(encryptedAESKey);
 
-            // Step 2: Sign with RSA private key (excluding signature itself)
-            byte[] dataToSign = serializeObject(new SecureFilePayload(
-                    payload.getFileName(),
-                    payload.getFileContent(),
-                    payload.getTimestamp(),
-                    payload.getNonce(),
-                    null
-            ));
+            byte[] payloadBytes = new byte[dis.readInt()];
+            dis.readFully(payloadBytes);
+            String payload = new String(payloadBytes, StandardCharsets.UTF_8);
 
-            byte[] signature = RSAUtils.sign(dataToSign, PRIVATE_KEY);
-            payload.setSignature(signature);
+            byte[] signatureBytes = new byte[dis.readInt()];
+            dis.readFully(signatureBytes);
 
-            // Step 3: Encrypt full payload using AES
-            byte[] serializedPayload = serializeObject(payload);
-            byte[] encryptedPayload = AESUtils.encrypt(serializedPayload, AESUtils.getKeyFromBytes(AES_KEY_BYTES));
+            // Parse payload
+            Map<String, String> payloadMap = parsePayload(payload);
+            String filename = payloadMap.get("filename");
+            String nonce = payloadMap.get("nonce");
+            long timestamp = Long.parseLong(payloadMap.get("timestamp"));
+            byte[] iv = Base64.getDecoder().decode(payloadMap.get("iv"));
 
-            // Step 4: Send over socket
-            out.writeInt(encryptedPayload.length);
-            out.write(encryptedPayload);
+            // Verify signature
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(encryptedFile);
+            digest.update(encryptedAESKey);
+            digest.update(payload.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest();
+
+            Signature signature = Signature.getInstance("SHA256withRSA");
+            signature.initVerify(senderPublicKey);
+            signature.update(hash);
+            boolean validSignature = signature.verify(signatureBytes);
+
+            if (!validSignature) {
+                System.err.println("Invalid Signature: File may be tampered with!");
+                return;
+            }
+
+            // Check for replay attacks
+            if (usedNonces.contains(nonce)) {
+                System.err.println("Replay attack detected: duplicate nonce");
+                return;
+            }
+            if (System.currentTimeMillis() - timestamp > 5 * 60 * 1000) {
+                System.err.println("Stale message: timestamp expired");
+                return;
+            }
+            usedNonces.add(nonce);
+
+            // Decrypt AES key
+            Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            rsaCipher.init(Cipher.DECRYPT_MODE, receiverPrivateKey);
+            byte[] aesKeyBytes = rsaCipher.doFinal(encryptedAESKey);
+            SecretKey aesKey = new SecretKeySpec(aesKeyBytes, "AES");
+
+            // Decrypt file
+            Cipher aesCipher = Cipher.getInstance(AES_TRANSFORMATION);
+            aesCipher.init(Cipher.DECRYPT_MODE, aesKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] decryptedFile = aesCipher.doFinal(encryptedFile);
+
+            // Save file
+            File outputFile = new File(savePath + filename);
+            Files.write(outputFile.toPath(), decryptedFile);
+            System.out.println("File received and saved as: " + outputFile.getAbsolutePath());
 
         } catch (Exception e) {
             e.printStackTrace();
-            throw new IOException("Failed to send file: " + e.getMessage());
         }
     }
 
-    // ✅ Receiver (Alice or Bob)
-    public static void receiveFile(Socket socket, String saveDir) {
-        try (DataInputStream in = new DataInputStream(socket.getInputStream())) {
-
-            int length = in.readInt();
-            if (length <= 0) return;
-
-            byte[] encryptedPayload = new byte[length];
-            in.readFully(encryptedPayload);
-
-            // Step 1: Decrypt using AES
-            byte[] decryptedPayload = AESUtils.decrypt(encryptedPayload, AESUtils.getKeyFromBytes(AES_KEY_BYTES));
-            SecureFilePayload payload = deserializePayload(decryptedPayload);
-
-            // Step 2: Replay attack protection - timestamp check
-            long currentTime = System.currentTimeMillis();
-            if (Math.abs(currentTime - payload.getTimestamp()) > ALLOWED_TIME_WINDOW_MS) {
-                System.err.println("Rejected: Timestamp out of range.");
-                return;
+    private static Map<String, String> parsePayload(String payload) {
+        Map<String, String> map = new HashMap<>();
+        String[] parts = payload.split(";");
+        for (String part : parts) {
+            String[] kv = part.split("=", 2);
+            if (kv.length == 2) {
+                map.put(kv[0], kv[1]);
             }
-
-            // Step 3: Replay attack protection - nonce uniqueness
-            if (usedNonces.contains(payload.getNonce())) {
-                System.err.println("Rejected: Replay detected (nonce reused).");
-                return;
-            }
-
-            // Step 4: RSA Signature verification
-            byte[] dataToVerify = serializeObject(new SecureFilePayload(
-                    payload.getFileName(),
-                    payload.getFileContent(),
-                    payload.getTimestamp(),
-                    payload.getNonce(),
-                    null
-            ));
-
-            boolean isValid = RSAUtils.verify(dataToVerify, payload.getSignature(), PUBLIC_KEY);
-            if (!isValid) {
-                System.err.println("Rejected: RSA signature invalid.");
-                return;
-            }
-
-            // Step 5: Store file
-            usedNonces.add(payload.getNonce());
-            File outputFile = new File(saveDir + payload.getFileName());
-            FileUtils.writeFile(outputFile.getAbsolutePath(), payload.getFileContent());
-
-            System.out.println("File received and saved: " + outputFile.getAbsolutePath());
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.err.println("Error receiving file: " + e.getMessage());
         }
+        return map;
     }
 }
