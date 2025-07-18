@@ -19,50 +19,47 @@ public class Client {
     private static final int CLIENT_RECEIVE_PORT = 5678;
 
     private static final String ALICE_PRIVATE_KEY = "alice_private.key";
-    private static final String ALICE_PUBLIC_KEY = "alice_public.key";
+    private static final String ALICE_PUBLIC_KEY = "alice_public.key"; // Optional if you want to send it to Bob
     private static final String BOB_PUBLIC_KEY = "bob_public.key";
 
     public static void main(String[] args) {
+        // Create directory for received files
         new File("ClientFiles/").mkdirs();
 
         try {
-            // Generate or load Alice's keys
+            // Generate or load RSA key pair
             if (!KeyLoader.keysExist(ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY)) {
                 KeyPair keyPair = RSAUtils.generateKeyPair();
                 KeyLoader.saveKeys(keyPair, ALICE_PUBLIC_KEY, ALICE_PRIVATE_KEY);
-                System.out.println("Generated and saved new RSA key pair for Alice.");
+                System.out.println("Generated and saved new RSA key pair.");
             }
 
-            // Load Alice's keys
-            PrivateKey alicePrivateKey = KeyLoader.loadPrivateKey(ALICE_PRIVATE_KEY);
-            PublicKey alicePublicKey = KeyLoader.loadPublicKey(ALICE_PUBLIC_KEY);
+            // Load keys
+            PrivateKey privateKey = KeyLoader.loadPrivateKey(ALICE_PRIVATE_KEY);
+            PublicKey publicKey = KeyLoader.loadPublicKey(ALICE_PUBLIC_KEY);
 
             // Set keys in FileTransferHandler
-            FileTransferHandler.setSenderPrivateKey(alicePrivateKey);  // For signing when Alice sends files
-            FileTransferHandler.setReceiverPrivateKey(alicePrivateKey); // For decrypting received files
-            FileTransferHandler.setSenderPublicKey(alicePublicKey);
+            FileTransferHandler.setSenderPrivateKey(privateKey);    // For signing outgoing files
+            FileTransferHandler.setReceiverPrivateKey(privateKey); // For decrypting received files
+            FileTransferHandler.setSenderPublicKey(publicKey);     // For signature verification
 
-            System.out.println("Loaded Alice's keys successfully.");
-        } catch (Exception e) {
-            System.err.println("Failed to load or generate Alice's keys: " + e.getMessage());
-            return;
-        }
+            System.out.println("Loaded keys successfully.");
 
-        try {
-            // Load Bob's public key
+            // Load partner's public key
             if (new File(BOB_PUBLIC_KEY).exists()) {
-                PublicKey bobPub = KeyLoader.loadPublicKey(BOB_PUBLIC_KEY);
-                FileTransferHandler.setReceiverPublicKey(bobPub);  // For encrypting files to Bob
+                PublicKey partnerPublicKey = KeyLoader.loadPublicKey(BOB_PUBLIC_KEY);
+                FileTransferHandler.setReceiverPublicKey(partnerPublicKey);  // For encrypting files to partner
                 System.out.println("Loaded Bob's public key.");
             } else {
                 System.err.println("Bob's public key not found!");
             }
         } catch (Exception e) {
-            System.err.println("Failed to load Bob's public key: " + e.getMessage());
+            System.err.println("Failed to load or generate keys: " + e.getMessage());
+            return;
         }
 
         // GUI Setup
-        JFrame jFrame = new JFrame("Alice");
+        JFrame jFrame = new JFrame("Secure File Transfer");
         jFrame.setSize(650, 450);
         jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         jFrame.setLayout(new BorderLayout(10, 10));
@@ -72,12 +69,12 @@ public class Client {
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         mainPanel.setBackground(Color.WHITE);
 
-        JLabel jlTitle = new JLabel("Alice File Sender/Receiver");
+        JLabel jlTitle = new JLabel("Secure File Transfer Client");
         jlTitle.setFont(new Font("Arial", Font.BOLD, 28));
         jlTitle.setBorder(new EmptyBorder(30, 0, 10, 0));
         jlTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JLabel jlFileName = new JLabel("Choose a file to send to Bob");
+        JLabel jlFileName = new JLabel("Choose a file to send");
         jlFileName.setFont(new Font("Arial", Font.BOLD, 20));
         jlFileName.setBorder(new EmptyBorder(50, 0, 0, 0));
         jlFileName.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -119,8 +116,8 @@ public class Client {
             } else {
                 try {
                     FileTransferHandler.sendFile(fileToSend[0], SERVER_ADDRESS, SERVER_PORT);
-                    System.out.println("Alice sent = " + fileToSend[0].getName());
-                    JOptionPane.showMessageDialog(null, "File sent to server successfully!");
+                    System.out.println("File sent: " + fileToSend[0].getName());
+                    JOptionPane.showMessageDialog(null, "File sent successfully!");
                 } catch (IOException ex) {
                     ex.printStackTrace();
                     JOptionPane.showMessageDialog(null, "Error sending file: " + ex.getMessage());
@@ -130,12 +127,13 @@ public class Client {
 
         jFrame.setVisible(true);
 
+        // Start receiver thread
         new Thread(Client::startReceiver).start();
     }
 
     private static void startReceiver() {
         try (ServerSocket serverSocket = new ServerSocket(CLIENT_RECEIVE_PORT)) {
-            System.out.println("Client ready to receive files on port " + CLIENT_RECEIVE_PORT);
+            System.out.println("Ready to receive files on port " + CLIENT_RECEIVE_PORT);
             while (true) {
                 Socket socket = serverSocket.accept();
                 FileTransferHandler.receiveFile(socket, "ClientFiles/");
