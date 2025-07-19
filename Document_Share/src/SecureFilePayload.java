@@ -5,14 +5,17 @@ public class SecureFilePayload implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private String fileName;
-    private byte[] fileContent;
+    private byte[] encryptedFile;       // AES-encrypted file content
+    private byte[] encryptedAESKey;     // RSA-encrypted AES key
     private long timestamp;
     private String nonce;
-    private byte[] signature;
+    private byte[] signature;           // Signature of {filename, encryptedFile, encryptedAESKey, nonce, timestamp}
 
-    public SecureFilePayload(String fileName, byte[] fileContent, long timestamp, String nonce, byte[] signature) {
+    public SecureFilePayload(String fileName, byte[] encryptedFile, byte[] encryptedAESKey,
+                             long timestamp, String nonce, byte[] signature) {
         this.fileName = fileName;
-        this.fileContent = fileContent;
+        this.encryptedFile = encryptedFile;
+        this.encryptedAESKey = encryptedAESKey;
         this.timestamp = timestamp;
         this.nonce = nonce;
         this.signature = signature;
@@ -22,8 +25,12 @@ public class SecureFilePayload implements Serializable {
         return fileName;
     }
 
-    public byte[] getFileContent() {
-        return fileContent;
+    public byte[] getEncryptedFile() {
+        return encryptedFile;
+    }
+
+    public byte[] getEncryptedAESKey() {
+        return encryptedAESKey;
     }
 
     public long getTimestamp() {
@@ -42,8 +49,12 @@ public class SecureFilePayload implements Serializable {
         this.fileName = fileName;
     }
 
-    public void setFileContent(byte[] fileContent) {
-        this.fileContent = fileContent;
+    public void setEncryptedFile(byte[] encryptedFile) {
+        this.encryptedFile = encryptedFile;
+    }
+
+    public void setEncryptedAESKey(byte[] encryptedAESKey) {
+        this.encryptedAESKey = encryptedAESKey;
     }
 
     public void setTimestamp(long timestamp) {
@@ -62,7 +73,8 @@ public class SecureFilePayload implements Serializable {
     public String toString() {
         return "SecureFilePayload{" +
                 "fileName='" + fileName + '\'' +
-                ", fileContent.length=" + (fileContent != null ? fileContent.length : 0) +
+                ", encryptedFile.length=" + (encryptedFile != null ? encryptedFile.length : 0) +
+                ", encryptedAESKey.length=" + (encryptedAESKey != null ? encryptedAESKey.length : 0) +
                 ", timestamp=" + timestamp +
                 ", nonce='" + nonce + '\'' +
                 ", signature=" + Arrays.toString(signature) +
