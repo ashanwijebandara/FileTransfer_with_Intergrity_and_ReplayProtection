@@ -55,7 +55,7 @@ public class Server {
 
         // GUI Setup
         JFrame jFrame = new JFrame("Bob");
-        jFrame.setSize(650, 450);
+        jFrame.setSize(650, 550);  // Increased height for extra buttons
         jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         jFrame.setLayout(new BorderLayout(10, 10));
         jFrame.setLocationRelativeTo(null);
@@ -71,7 +71,7 @@ public class Server {
 
         JLabel jlFileName = new JLabel("Choose a file to send to Alice");
         jlFileName.setFont(new Font("Arial", Font.BOLD, 20));
-        jlFileName.setBorder(new EmptyBorder(50, 0, 0, 0));
+        jlFileName.setBorder(new EmptyBorder(30, 0, 10, 0));
         jlFileName.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton jbChooseFile = new JButton("Choose File");
@@ -79,20 +79,75 @@ public class Server {
         jbChooseFile.setBackground(new Color(173, 216, 230));
         jbChooseFile.setForeground(Color.WHITE);
         jbChooseFile.setBorder(BorderFactory.createLineBorder(new Color(135, 206, 250), 2));
+        jbChooseFile.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        JButton jbSendBack = new JButton("Send File");
-        jbSendBack.setFont(new Font("Arial", Font.BOLD, 20));
-        jbSendBack.setBackground(new Color(60, 179, 113));
-        jbSendBack.setForeground(Color.WHITE);
-        jbSendBack.setBorder(BorderFactory.createLineBorder(new Color(46, 139, 87), 2));
+        JButton jbSendFile = new JButton("Send Chosen File");
+        jbSendFile.setFont(new Font("Arial", Font.BOLD, 20));
+        jbSendFile.setBackground(new Color(60, 179, 113));
+        jbSendFile.setForeground(Color.WHITE);
+        jbSendFile.setBorder(BorderFactory.createLineBorder(new Color(46, 139, 87), 2));
+        jbSendFile.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+//        JButton jbSendBack = new JButton("Send Last Received File to Alice");
+//        jbSendBack.setFont(new Font("Arial", Font.BOLD, 20));
+//        jbSendBack.setBackground(new Color(100, 149, 237));
+//        jbSendBack.setForeground(Color.WHITE);
+//        jbSendBack.setBorder(BorderFactory.createLineBorder(new Color(65, 105, 225), 2));
+//        jbSendBack.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         mainPanel.add(jlTitle);
         mainPanel.add(jlFileName);
-        mainPanel.add(jbSendBack);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(jbChooseFile);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+        mainPanel.add(jbSendFile);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 30)));
+//        mainPanel.add(jbSendBack);
+
         jFrame.add(mainPanel, BorderLayout.CENTER);
         jFrame.setVisible(true);
 
+        File[] fileToSend = new File[1];
         File[] lastReceivedFile = new File[1];
+
+        jbChooseFile.addActionListener(e -> {
+            JFileChooser jFileChooser = new JFileChooser();
+            jFileChooser.setDialogTitle("Choose a file to send");
+            if (jFileChooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                fileToSend[0] = jFileChooser.getSelectedFile();
+                jlFileName.setText("Selected file: " + fileToSend[0].getName());
+                jlFileName.setForeground(Color.BLACK);
+            }
+        });
+
+        jbSendFile.addActionListener(e -> {
+            if (fileToSend[0] == null) {
+                jlFileName.setText("Please choose a file");
+                jlFileName.setForeground(Color.RED);
+            } else {
+                try {
+                    FileTransferHandler.sendFile(fileToSend[0], "localhost", CLIENT_RECEIVE_PORT);
+                    JOptionPane.showMessageDialog(null, "File sent to Alice securely!");
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                    JOptionPane.showMessageDialog(null, "Error sending file: " + ex.getMessage());
+                }
+            }
+        });
+
+//        jbSendBack.addActionListener(e -> {
+//            if (lastReceivedFile[0] == null || !lastReceivedFile[0].exists()) {
+//                JOptionPane.showMessageDialog(null, "No received file to send.");
+//                return;
+//            }
+//            try {
+//                FileTransferHandler.sendFile(lastReceivedFile[0], "localhost", CLIENT_RECEIVE_PORT);
+//                JOptionPane.showMessageDialog(null, "Sent last received file back to Alice securely!");
+//            } catch (IOException ex) {
+//                ex.printStackTrace();
+//                JOptionPane.showMessageDialog(null, "Error sending file: " + ex.getMessage());
+//            }
+//        });
 
         // Start receiving thread
         new Thread(() -> {
@@ -100,30 +155,17 @@ public class Server {
                 System.out.println("Server listening on port " + SERVER_PORT);
                 while (true) {
                     Socket socket = serverSocket.accept();
-                    FileTransferHandler.receiveFile(socket, "ServerFiles/");
-                    jlFileName.setText("Received file successfully");
-                    jlFileName.setForeground(new Color(34, 139, 34));
-                    System.out.println("File received by Bob.");
+                    File receivedFile = FileTransferHandler.receiveFile(socket, "ServerFiles/");
+                    if (receivedFile != null) {
+                        lastReceivedFile[0] = receivedFile;
+                        jlFileName.setText("Received file: " + receivedFile.getName());
+                        jlFileName.setForeground(new Color(34, 139, 34));
+                        System.out.println("File received by Bob: " + receivedFile.getName());
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }).start();
-
-
-        // Send response file back to Alice
-        jbSendBack.addActionListener(e -> {
-            if (lastReceivedFile[0] == null || !lastReceivedFile[0].exists()) {
-                JOptionPane.showMessageDialog(null, "No file to send.");
-                return;
-            }
-            try {
-                FileTransferHandler.sendFile(lastReceivedFile[0], "localhost", CLIENT_RECEIVE_PORT);
-                JOptionPane.showMessageDialog(null, "Sent file back to Alice securely!");
-            } catch (IOException ex) {
-                ex.printStackTrace();
-                JOptionPane.showMessageDialog(null, "Error sending file: " + ex.getMessage());
-            }
-        });
     }
 }

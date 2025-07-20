@@ -56,7 +56,7 @@ public class Client {
 
         // GUI Setup
         JFrame jFrame = new JFrame("Alice");
-        jFrame.setSize(650, 450);
+        jFrame.setSize(650, 500);  // Increased height for extra button
         jFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         jFrame.setLayout(new BorderLayout(10, 10));
         jFrame.setLocationRelativeTo(null);
@@ -72,7 +72,7 @@ public class Client {
 
         JLabel jlFileName = new JLabel("Choose a file to send to Bob");
         jlFileName.setFont(new Font("Arial", Font.BOLD, 20));
-        jlFileName.setBorder(new EmptyBorder(50, 0, 0, 0));
+        jlFileName.setBorder(new EmptyBorder(30, 0, 10, 0));
         jlFileName.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton jbChooseFile = new JButton("Choose File");
@@ -80,20 +80,34 @@ public class Client {
         jbChooseFile.setBackground(new Color(173, 216, 230));
         jbChooseFile.setForeground(Color.WHITE);
         jbChooseFile.setBorder(BorderFactory.createLineBorder(new Color(135, 206, 250), 2));
+        jbChooseFile.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         JButton jbSendFile = new JButton("Send File");
         jbSendFile.setFont(new Font("Arial", Font.BOLD, 20));
         jbSendFile.setBackground(new Color(220, 20, 60));
         jbSendFile.setForeground(Color.WHITE);
         jbSendFile.setBorder(BorderFactory.createLineBorder(new Color(220, 20, 60), 2));
+        jbSendFile.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+//        JButton jbSendBack = new JButton("Send Last Received File to Bob");
+//        jbSendBack.setFont(new Font("Arial", Font.BOLD, 20));
+//        jbSendBack.setBackground(new Color(60, 179, 113));
+//        jbSendBack.setForeground(Color.WHITE);
+//        jbSendBack.setBorder(BorderFactory.createLineBorder(new Color(46, 139, 87), 2));
+//        jbSendBack.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         mainPanel.add(jlTitle);
         mainPanel.add(jlFileName);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         mainPanel.add(jbChooseFile);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         mainPanel.add(jbSendFile);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 30)));
+//        mainPanel.add(jbSendBack);
         jFrame.add(mainPanel, BorderLayout.CENTER);
 
         File[] fileToSend = new File[1];
+        File[] lastReceivedFile = new File[1];
 
         jbChooseFile.addActionListener(e -> {
             JFileChooser jFileChooser = new JFileChooser();
@@ -121,21 +135,38 @@ public class Client {
             }
         });
 
+//        jbSendBack.addActionListener(e -> {
+//            if (lastReceivedFile[0] == null || !lastReceivedFile[0].exists()) {
+//                JOptionPane.showMessageDialog(null, "No received file to send.");
+//                return;
+//            }
+//            try {
+//                FileTransferHandler.sendFile(lastReceivedFile[0], SERVER_ADDRESS, SERVER_PORT);
+//                JOptionPane.showMessageDialog(null, "Sent last received file back to Bob securely!");
+//            } catch (IOException ex) {
+//                ex.printStackTrace();
+//                JOptionPane.showMessageDialog(null, "Error sending file: " + ex.getMessage());
+//            }
+//        });
+
         jFrame.setVisible(true);
 
         // Start thread to receive responses from server
-        new Thread(Client::startReceiver).start();
-    }
-
-    private static void startReceiver() {
-        try (ServerSocket serverSocket = new ServerSocket(CLIENT_RECEIVE_PORT)) {
-            System.out.println("Client ready to receive files on port " + CLIENT_RECEIVE_PORT);
-            while (true) {
-                Socket socket = serverSocket.accept();
-                FileTransferHandler.receiveFile(socket, "ClientFiles/");
+        new Thread(() -> {
+            try (ServerSocket serverSocket = new ServerSocket(CLIENT_RECEIVE_PORT)) {
+                System.out.println("Client ready to receive files on port " + CLIENT_RECEIVE_PORT);
+                while (true) {
+                    Socket socket = serverSocket.accept();
+                    File receivedFile = FileTransferHandler.receiveFile(socket, "ClientFiles/");
+                    if (receivedFile != null) {
+                        lastReceivedFile[0] = receivedFile;
+                        jlFileName.setText("Received file: " + receivedFile.getName());
+                        jlFileName.setForeground(new Color(34, 139, 34));
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        }).start();
     }
 }
