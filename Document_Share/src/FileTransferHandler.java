@@ -56,9 +56,11 @@ public class FileTransferHandler {
             // 1. Generate AES key and encrypt file
             Key aesKey = AESUtils.generateKey();
             byte[] encryptedFile = AESUtils.encrypt(fileBytes, (SecretKey) aesKey);
+            System.out.println("Genarated a AES key and encrypt the file");
 
             // 2. Encrypt AES key with receiver's RSA public key
             byte[] encryptedAESKey = RSAUtils.encrypt(aesKey.getEncoded(), PUBLIC_KEY);
+            System.out.println("Encrypt AES key with receiver's public Key");
 
             // 3. Generate nonce and timestamp
             String nonce = generateNonce();
@@ -68,11 +70,13 @@ public class FileTransferHandler {
             SecureFilePayload unsignedPayload = new SecureFilePayload(
                     file.getName(), encryptedFile, encryptedAESKey, timestamp, nonce, null
             );
+            System.out.println("Create a payload with file name, encrypted file, encrypted AES key, timestamp, nonce");
 
             // 5. Sign the serialized payload (excluding signature)
             byte[] dataToSign = serializeObject(unsignedPayload);
             byte[] signature = RSAUtils.sign(dataToSign, PRIVATE_KEY);
             unsignedPayload.setSignature(signature);
+            System.out.println("Sign the payload with sender's private key");
 
             // 6. Serialize and send
             byte[] finalPayload = serializeObject(unsignedPayload);
@@ -103,13 +107,13 @@ public class FileTransferHandler {
             // 2. Check timestamp freshness
             long now = System.currentTimeMillis();
             if (Math.abs(now - payload.getTimestamp()) > ALLOWED_TIME_WINDOW_MS) {
-                System.err.println("❌ Rejected: Timestamp out of range.");
+                System.err.println(" Rejected: Timestamp out of range.");
                 return null;
             }
 
             // 3. Check for replay attack using nonce
             if (usedNonces.contains(payload.getNonce())) {
-                System.err.println("❌ Rejected: Replay detected (nonce reused).");
+                System.err.println(" Rejected: Replay detected (nonce reused).");
                 return null;
             }
 
@@ -129,13 +133,16 @@ public class FileTransferHandler {
                 System.err.println("❌ Rejected: Invalid RSA signature.");
                 return null;
             }
+            System.out.println("Signature verified by sender's public key");
 
             // 5. Decrypt AES key using receiver's private key
             byte[] aesKeyBytes = RSAUtils.decrypt(payload.getEncryptedAESKey(), PRIVATE_KEY);
             Key aesKey = AESUtils.getKeyFromBytes(aesKeyBytes);
+            System.out.println("Decrypt AES key using receiver's private key");
 
             // 6. Decrypt file content
             byte[] decryptedFile = AESUtils.decrypt(payload.getEncryptedFile(), (SecretKey) aesKey);
+            System.out.println("Decrypt file content");
 
             // 7. Save file
             usedNonces.add(payload.getNonce());
