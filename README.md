@@ -3,17 +3,6 @@
 ## Overview
 This project is a document sharing application that allows users to send and receive files between a client and a server. The application features a graphical user interface (GUI) for easy interaction and file selection.
 
-## Project Structure
-```
-Document_Share
-├── src
-│   ├── Client.java
-│   ├── Server.java
-│   ├── MyFile.java
-│   └── utils
-│       └── FileUtils.java
-├── README.md
-```
 
 ## File Descriptions
 
