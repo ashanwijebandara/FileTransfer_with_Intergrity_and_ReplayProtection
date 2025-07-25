@@ -83,7 +83,7 @@ public class FileTransferHandler {
             out.writeInt(finalPayload.length);
             out.write(finalPayload);
 
-            System.out.println("✅ File sent securely.");
+            System.out.println("File sent securely.");
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -113,7 +113,7 @@ public class FileTransferHandler {
 
             // 3. Check for replay attack using nonce
             if (usedNonces.contains(payload.getNonce())) {
-                System.err.println(" Rejected: Replay detected (nonce reused).");
+                System.err.println("Rejected: Replay detected (nonce reused).");
                 return null;
             }
 
@@ -130,7 +130,7 @@ public class FileTransferHandler {
             byte[] dataToVerify = serializeObject(tempPayload);
             boolean isVerified = RSAUtils.verify(dataToVerify, payload.getSignature(), PUBLIC_KEY);
             if (!isVerified) {
-                System.err.println("❌ Rejected: Invalid RSA signature.");
+                System.err.println("Rejected: Invalid RSA signature.");
                 return null;
             }
             System.out.println("Signature verified by sender's public key");
@@ -149,12 +149,12 @@ public class FileTransferHandler {
             File outputFile = new File(saveDir, payload.getFileName());
             FileUtils.writeFile(outputFile.getAbsolutePath(), decryptedFile);
 
-            System.out.println("✅ File received and saved: " + outputFile.getAbsolutePath());
+            System.out.println("File received and saved: " + outputFile.getAbsolutePath());
             return outputFile;
 
         } catch (Exception e) {
             e.printStackTrace();
-            System.err.println("❌ Error receiving file: " + e.getMessage());
+            System.err.println("Error receiving file: " + e.getMessage());
             return null;
         }
     }
